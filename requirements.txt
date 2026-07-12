@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+requests
+pydantic
+python-multipart
+faster-whisper
+habibi-tts
+soundfile
