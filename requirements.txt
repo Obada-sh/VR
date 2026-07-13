@@ -3,6 +3,8 @@ uvicorn[standard]
 requests
 pydantic
 python-multipart
-faster-whisper
 leva-tts
 soundfile
+# NOTE: speech-to-text is NOT installed here. It runs in a separate venv/process
+# (whisper_service.py) — see requirements-stt.txt — because its transformers>=5.4
+# conflicts with leva-tts's transformers<5.

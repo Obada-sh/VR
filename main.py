@@ -16,12 +16,12 @@ Flow:
   5. POST /chat-voice with { session_id, file } (multipart) is the full VOICE
      version of /chat: the doctor's audio is transcribed, the Damascus-dialect
      STT mistakes are fixed by the LLM, the patient LLM answers, and the answer
-     is spoken back with Habibi-TTS. The response body is audio/wav (the reply
+     is spoken back with Leva-TTS. The response body is audio/wav (the reply
      text is also in the X-Patient-Reply response header).
   6. POST /transcribe with a multipart audio file to get ONLY a Damascus-dialect
      corrected Arabic transcript (no chat session involved).
-Both the whisper (STT) and Habibi-TTS models are loaded onto the GPU once, at
-server startup.
+STT (Cohere Transcribe) runs in a separate service/venv (whisper_service.py on
+port 8001); Leva-TTS is loaded onto the GPU once, at this server's startup.
 
 Conversation history lives HERE, keyed by session_id, in memory.
 Note: in-memory storage is per-process — it is cleared on restart and does not
@@ -74,10 +74,11 @@ API_KEY = os.environ.get("OPENCODE_API_KEY", "")  # you pass this via the enviro
 
 SCENARIOS_PATH = Path(__file__).parent / "scenarios.json"
 
-# --- Speech-to-text (external whisper microservice) ---------------------------
-# faster-whisper (CTranslate2) can't share a process with Habibi-TTS (PyTorch)
-# on Windows without segfaulting, so STT runs as a SEPARATE service that we call
-# over HTTP. Start it FIRST:  python -m uvicorn whisper_service:app --port 8001
+# --- Speech-to-text (external ASR microservice) -------------------------------
+# STT uses CohereLabs/cohere-transcribe-03-2026, which needs transformers>=5.4,
+# while Leva-TTS pins transformers<5. They can't share a venv, so STT runs as a
+# SEPARATE service (its own venv + process) that we call over HTTP.
+# Start it FIRST:  python -m uvicorn whisper_service:app --port 8001
 WHISPER_SERVICE_URL = os.environ.get("WHISPER_SERVICE_URL", "http://127.0.0.1:8001")
 
 # Prompt used to clean up STT mistakes caused by the Damascus dialect.
@@ -279,8 +280,8 @@ app = FastAPI(
         "Medical patient-simulation API for Syrian medical students.\n\n"
         "**Typical flow:** `GET /scenarios` → `POST /start` → `POST /chat` "
         "(or `POST /chat-voice` for voice) each turn → `POST /evaluate`.\n\n"
-        "Speech runs locally on the GPU: **faster-whisper** for speech-to-text "
-        "and **Habibi-TTS** for Damascene (Levantine) text-to-speech."
+        "Speech runs locally on the GPU: **Cohere Transcribe** for speech-to-text "
+        "and **Leva-TTS** for Damascene (Levantine) text-to-speech."
     ),
     openapi_tags=TAGS_METADATA,
 )
@@ -417,7 +418,7 @@ def chat(req: ChatRequest):
 def chat_voice(session_id: str = Form(...), file: UploadFile = File(...)):
     """Full voice turn: audio in -> patient's spoken reply (WAV) out.
 
-    Pipeline: faster-whisper transcribes the doctor's audio -> LLM fixes the
+    Pipeline: Cohere Transcribe transcribes the doctor's audio -> LLM fixes the
     Damascus-dialect STT mistakes -> the patient LLM answers -> an LLM pass adds
     diacritics (تشكيل) to that answer -> Leva-TTS speaks it in a female
     Damascene (Levantine) voice.
@@ -452,8 +453,8 @@ def chat_voice(session_id: str = Form(...), file: UploadFile = File(...)):
 def transcribe_audio(file: UploadFile = File(...)):
     """Speech-to-text only: upload audio, get back the corrected Arabic transcript.
 
-    Pipeline: faster-whisper (large-v3, Arabic) -> LLM pass that fixes the
-    Damascus-dialect words whisper got wrong. Does NOT touch a chat session.
+    Pipeline: Cohere Transcribe (Arabic) -> LLM pass that fixes the
+    Damascus-dialect words the model got wrong. Does NOT touch a chat session.
     """
     stt = _transcribe_and_fix(file)
     return TranscribeResponse(
