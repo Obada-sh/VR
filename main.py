@@ -35,7 +35,7 @@ Run:
 
 import os
 
-# faster-whisper (CTranslate2) and Habibi-TTS (PyTorch) each bundle their own
+# faster-whisper (CTranslate2) and Leva-TTS (PyTorch) each bundle their own
 # copy of the Intel OpenMP runtime (libiomp5md.dll). Loading both into one
 # process segfaults on Windows. This tells the loader to tolerate the duplicate.
 # MUST be set before torch / ctranslate2 are imported (i.e. before `import tts`).
@@ -65,7 +65,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-import tts  # local Habibi-TTS; loads the model onto the GPU at import time
+import tts  # local Leva-TTS; loads the model onto the GPU at import time
 
 # --- LLM configuration -------------------------------------------------------
 API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
@@ -86,9 +86,22 @@ STT_FIX_PROMPT = """I have this transcipt from an SST model
 as you can see there are some wrong words, that's because the voice is from Damascus dilect
 
 I want you to fix the mistakes and return only the corrected transcript
-Make sure each word is written correctly according to Damascus dilect 
+Make sure each word is written correctly according to Damascus dilect
 
 
+"""
+
+# Prompt used to add full Arabic diacritics (تشكيل) to the patient's reply so
+# the TTS pronounces the Damascene words correctly.
+TASHKEEL_PROMPT = """أضِف التشكيل الكامل (الفتحة، الضمة، الكسرة، السكون، الشدّة، التنوين) لكل حرف في النص التالي.
+
+قواعد صارمة:
+- لا تُغيّر الكلمات إطلاقاً، ولا ترتيبها، ولا تحوّلها إلى الفصحى — اللهجة شامية دمشقية، احتفظ بها كما هي حرفاً بحرف.
+- شكّل الكلمات كما تُنطق فعلاً باللهجة الشامية (مثال: "هلّق"، "شو"، "تعبانِة").
+- لا تُضِف أي كلمة أو شرح أو علامات، أعِد النص نفسه مُشكّلاً فقط.
+
+النص:
+{text}
 """
 
 # --- In-memory session store -------------------------------------------------
@@ -323,6 +336,23 @@ def _run_chat_turn(session: dict, message: str) -> str:
     return reply
 
 
+def _add_tashkeel(text: str) -> str:
+    """Add full Arabic diacritics (تشكيل) to the reply for accurate TTS.
+
+    Runs a dedicated LLM pass. If it fails or returns nothing usable, fall back
+    to the original (undiacritized) text so speech is never blocked.
+    """
+    try:
+        diacritized = _call_llm(
+            [{"role": "user", "content": TASHKEEL_PROMPT.format(text=text)}],
+            max_tokens=800,
+            temperature=0.0,
+        ).strip()
+    except HTTPException:
+        return text
+    return diacritized or text
+
+
 def _transcribe_and_fix(file: UploadFile) -> dict:
     """Send an uploaded audio file to the whisper STT service, then run the
     dialect-fix LLM pass on the returned transcript.
@@ -388,8 +418,9 @@ def chat_voice(session_id: str = Form(...), file: UploadFile = File(...)):
     """Full voice turn: audio in -> patient's spoken reply (WAV) out.
 
     Pipeline: faster-whisper transcribes the doctor's audio -> LLM fixes the
-    Damascus-dialect STT mistakes -> the patient LLM answers -> Habibi-TTS
-    speaks that answer in the Damascene (Levantine) dialect.
+    Damascus-dialect STT mistakes -> the patient LLM answers -> an LLM pass adds
+    diacritics (تشكيل) to that answer -> Leva-TTS speaks it in a female
+    Damascene (Levantine) voice.
 
     Send as multipart/form-data with fields `session_id` and `file`.
     The response BODY is the patient's reply as audio/wav. The reply text and
@@ -400,7 +431,10 @@ def chat_voice(session_id: str = Form(...), file: UploadFile = File(...)):
     stt = _transcribe_and_fix(file)
     reply = _run_chat_turn(session, stt["text"])
 
-    wav_bytes = tts.synthesize_to_wav_bytes(reply)
+    # Diacritize (تشكيل) just for TTS so the Damascene words are pronounced
+    # correctly; the returned/stored reply text stays clean.
+    spoken = _add_tashkeel(reply)
+    wav_bytes = tts.synthesize_to_wav_bytes(spoken)
 
     return Response(
         content=wav_bytes,
