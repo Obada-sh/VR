@@ -1,0 +1,112 @@
+{
+  "lab": {
+    "cbc": {
+      "name": "تعداد دم كامل (CBC)",
+      "result": "WBC: 11.2 ×10⁹/L | Hb: 10.4 g/dL | Platelets: 168 ×10⁹/L | Neutrophils: 74% | Lymphocytes: 18%"
+    },
+    "esr": {
+      "name": "سرعة التثفل (ESR)",
+      "result": "82 mm/hr (المجال الطبيعي: 0-20 mm/hr) — ارتفاع واضح"
+    },
+    "crp": {
+      "name": "البروتين الارتكاسي C (CRP)",
+      "result": "48 mg/L (المجال الطبيعي: أقل من 5 mg/L)"
+    },
+    "rft": {
+      "name": "وظائف الكلى (Urea & Creatinine)",
+      "result": "Urea: 38 mg/dL | Creatinine: 1.1 mg/dL | eGFR: 78 mL/min"
+    },
+    "lft": {
+      "name": "وظائف الكبد (LFT)",
+      "result": "ALT: 32 U/L | AST: 29 U/L | ALP: 96 U/L | Bilirubin: 0.8 mg/dL — ضمن الحدود الطبيعية"
+    },
+    "urine": {
+      "name": "تحليل بول كامل (Urinalysis)",
+      "result": "Protein: ++ | RBCs: 15-20/HPF | Casts: كريات حمر أسطوانية (RBC casts) موجودة"
+    },
+    "electrolytes": {
+      "name": "الشوارد (Na, K, Cl)",
+      "result": "Na: 138 mmol/L | K: 4.1 mmol/L | Cl: 101 mmol/L — طبيعية"
+    },
+    "abg": {
+      "name": "غازات الدم الشرياني (ABG)",
+      "result": "pH: 7.31 | PaCO₂: 49 mmHg | PaO₂: 62 mmHg | HCO₃: 23 mmol/L | SaO₂: 90% — قصور تنفسي مع احتباس CO₂"
+    }
+  },
+  "imaging": {
+    "cxr": {
+      "name": "صورة صدر بسيطة (Chest X-Ray)",
+      "result": "فرط تهوية في الرئتين مع تسطّح الحجاب الحاجز، لا ارتشاح ولا استرواح صدر (No infiltrate, no pneumothorax)"
+    },
+    "hand_xray": {
+      "name": "صورة شعاعية لليدين (Hand X-Ray)",
+      "result": "تورّم في الأنسجة الرخوة حول المفاصل، لا تآكلات عظمية واضحة (No bony erosions)"
+    },
+    "ct_chest": {
+      "name": "طبقي محوري للصدر (CT Chest)",
+      "result": "سماكة في جدران القصبات مع مناطق حبس هوائي (Air trapping)، لا صمة رئوية"
+    },
+    "abdominal_us": {
+      "name": "إيكو بطن (Abdominal Ultrasound)",
+      "result": "الكبد والطحال والكليتان بحجم وبنية طبيعية، لا سائل حر في جوف البطن"
+    },
+    "doppler": {
+      "name": "دوبلر أوعية الأطراف (Limb Doppler)",
+      "result": "تضيّق وانسداد جزئي في الشرايين الصغيرة للأطراف مع ضعف الجريان المحيطي"
+    }
+  },
+  "cardio": {
+    "ecg": {
+      "name": "تخطيط قلب كهربائي (ECG)",
+      "result": "تسرّع قلب جيبي 118/دقيقة، لا تبدلات إقفارية في الوصلة ST، لا اضطراب نظم"
+    },
+    "echo": {
+      "name": "إيكو قلب (Echocardiography)",
+      "result": "الجزء المقذوف EF: 60% | لا انصباب تأمور | الصمامات سليمة"
+    },
+    "troponin": {
+      "name": "تروبونين (Troponin I)",
+      "result": "0.01 ng/mL (سلبي — لا دليل على أذية عضلة قلبية)"
+    }
+  },
+  "pulmo": {
+    "pef": {
+      "name": "ذروة الجريان الزفيري (PEF)",
+      "result": "180 L/min وهي 38% من القيمة المتوقعة للمريض — نوبة شديدة"
+    },
+    "spirometry": {
+      "name": "قياس التنفس (Spirometry)",
+      "result": "FEV1: 45% من المتوقع | FEV1/FVC: 0.62 | استجابة للموسّع: تحسّن 18% — نمط انسدادي عكوس"
+    },
+    "pulse_ox": {
+      "name": "قياس الأكسجة النبضي (Pulse Oximetry)",
+      "result": "SpO₂: 89% على هواء الغرفة"
+    }
+  },
+  "immuno": {
+    "ana": {
+      "name": "الأضداد النووية (ANA)",
+      "result": "إيجابي بعيار 1:640، نمط متجانس (Homogeneous pattern)"
+    },
+    "anti_dsdna": {
+      "name": "أضداد dsDNA",
+      "result": "إيجابي — 210 IU/mL (المجال الطبيعي: أقل من 30)"
+    },
+    "complement": {
+      "name": "المتممة (C3, C4)",
+      "result": "C3: 52 mg/dL منخفض | C4: 9 mg/dL منخفض — استهلاك متممة"
+    },
+    "anca": {
+      "name": "أضداد هيولى العدلات (ANCA)",
+      "result": "سلبي (p-ANCA و c-ANCA)"
+    },
+    "rf": {
+      "name": "العامل الرثياني (RF)",
+      "result": "22 IU/mL (سلبي/حدّي)"
+    },
+    "ige": {
+      "name": "الغلوبيولين المناعي E الكلي (Total IgE)",
+      "result": "480 IU/mL مرتفع — يوافق أرضية تأتّبية (Atopy)"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "lab": { "name": "التحاليل المخبرية (Laboratory)" },
+  "imaging": { "name": "التصوير الشعاعي (Imaging)" },
+  "cardio": { "name": "الفحوص القلبية (Cardiac)" },
+  "pulmo": { "name": "وظائف التنفس (Pulmonary)" },
+  "immuno": { "name": "التحاليل المناعية (Immunology)" }
+}
