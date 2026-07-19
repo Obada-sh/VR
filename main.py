@@ -75,7 +75,7 @@ API_KEY = os.environ.get("OPENCODE_API_KEY", "")  # you pass this via the enviro
 SCENARIOS_PATH = Path(__file__).parent / "scenarios.json"
 
 # --- Speech-to-text (external ASR microservice) -------------------------------
-# STT uses CohereLabs/cohere-transcribe-03-2026, which needs transformers>=5.4,
+# STT uses CohereLabs/cohere-transcribe-arabic-07-2026, which needs transformers>=5.4,
 # while Leva-TTS pins transformers<5. They can't share a venv, so STT runs as a
 # SEPARATE service (its own venv + process) that we call over HTTP.
 # Start it FIRST:  python -m uvicorn whisper_service:app --port 8001

@@ -1,7 +1,7 @@
 """
 Speech-to-text microservice (runs in its OWN process AND its own venv).
 
-Model: CohereLabs/cohere-transcribe-03-2026 — a 2B Conformer encoder / Transformer
+Model: CohereLabs/cohere-transcribe-arabic-07-2026 — a 2B Conformer encoder / Transformer
 decoder ASR model (transformers-based). It supports Arabic, which is what we force
 here for the Damascus-dialect doctor audio.
 
@@ -21,8 +21,8 @@ Setup (once), in this service's venv:
     pip install "transformers>=5.4.0" accelerate sentencepiece protobuf soundfile librosa
     pip install fastapi "uvicorn[standard]" python-multipart huggingface_hub hf_transfer
     hf auth login                       # model is gated
-    # accept the license at https://huggingface.co/CohereLabs/cohere-transcribe-03-2026
-    HF_HUB_DISABLE_XET=1 hf download CohereLabs/cohere-transcribe-03-2026
+    # accept the license at https://huggingface.co/CohereLabs/cohere-transcribe-arabic-07-2026
+    HF_HUB_DISABLE_XET=1 hf download CohereLabs/cohere-transcribe-arabic-07-2026
 
 Run this FIRST, in its own terminal (with sttenv active):
     python -m uvicorn whisper_service:app --port 8001
@@ -52,7 +52,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-MODEL_ID = "CohereLabs/cohere-transcribe-03-2026"
+MODEL_ID = "CohereLabs/cohere-transcribe-arabic-07-2026"
 LANGUAGE = "ar"            # force Arabic for the Damascus-dialect audio
 SAMPLE_RATE = 16000        # the model expects 16 kHz audio
 

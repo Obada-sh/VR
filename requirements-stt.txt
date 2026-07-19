@@ -1,5 +1,5 @@
 # Dependencies for the STT microservice (whisper_service.py), which runs in its
-# OWN venv (sttenv) because CohereLabs/cohere-transcribe-03-2026 needs
+# OWN venv (sttenv) because CohereLabs/cohere-transcribe-arabic-07-2026 needs
 # transformers>=5.4 while Leva-TTS (main venv) pins transformers<5.
 #
 # Install into a dedicated venv:
@@ -10,8 +10,8 @@
 #
 # The model is gated (~4.13 GB). Once, before first run:
 #   hf auth login
-#   # accept the license at https://huggingface.co/CohereLabs/cohere-transcribe-03-2026
-#   HF_HUB_DISABLE_XET=1 hf download CohereLabs/cohere-transcribe-03-2026
+#   # accept the license at https://huggingface.co/CohereLabs/cohere-transcribe-arabic-07-2026
+#   HF_HUB_DISABLE_XET=1 hf download CohereLabs/cohere-transcribe-arabic-07-2026
 
 # torch is installed separately from the CUDA index (see above) — not listed here.
 transformers>=5.4.0
