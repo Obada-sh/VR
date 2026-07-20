@@ -23,6 +23,7 @@ def get_session(session_id: str, include_system: bool = False):
         "scenario_id": session["scenario_id"],
         "messages": messages,
         "tests": session.get("tests", []),
+        "answers": session.get("answers", []),
     }
 
 

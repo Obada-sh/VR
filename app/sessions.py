@@ -2,7 +2,9 @@
 
 session_id -> { "scenario_id": str,
                 "messages":    [ {role, content}, ... ],   # [0] is the system prompt
-                "tests":       [ {category_id, id, name}, ... ] }  # ordered investigations
+                "tests":       [ {category_id, id, name}, ... ],   # ordered investigations
+                "answers":     [ {question_id, question, choice_id, answer,
+                                  correct_choice_id, correct_answer, is_correct}, ... ] }
 
 Note: in-memory storage is per-process — it is cleared on restart and does not
 work across multiple uvicorn workers. For production, back SESSIONS with Redis
@@ -26,6 +28,7 @@ def create_session(session_id: str, scenario_id: str, system_prompt: str) -> Non
             "scenario_id": scenario_id,
             "messages": [{"role": "system", "content": system_prompt}],
             "tests": [],  # investigations the doctor ordered, in order
+            "answers": [],  # final-quiz answers, in order
         }
 
 
@@ -51,6 +54,17 @@ def record_test(session: dict, category_id: str, test_id: str, name: str) -> Non
         session.setdefault("tests", []).append(
             {"category_id": category_id, "id": test_id, "name": name}
         )
+
+
+def record_answer(session: dict, answer: dict) -> None:
+    """Store one quiz answer. Re-answering a question replaces the earlier answer."""
+    with _lock:
+        answers = session.setdefault("answers", [])
+        for i, existing in enumerate(answers):
+            if existing["question_id"] == answer["question_id"]:
+                answers[i] = answer
+                return
+        answers.append(answer)
 
 
 def run_chat_turn(session: dict, message: str) -> str:

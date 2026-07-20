@@ -14,8 +14,11 @@ Flow:
      history, calls the LLM, stores + returns the patient's reply.
   4. GET /test-categories and GET /test-categories/{id}/tests list the
      investigations; POST /test-result orders one and returns its result.
-  5. Optionally POST /evaluate with { session_id } to grade the doctor.
-  6. POST /chat-voice with { session_id, file } (multipart) is the full VOICE
+  5. GET /questions?session_id=... lists the final multiple-choice quiz for the
+     session's case; POST /answer records one choice per question. The questions
+     and the doctor's answers come back with GET /session/{id}.
+  6. Optionally POST /evaluate with { session_id } to grade the doctor.
+  7. POST /chat-voice with { session_id, file } (multipart) is the full VOICE
      version of /chat; POST /transcribe is speech-to-text only.
 
 This file only bootstraps the process and assembles the app — all real code
@@ -48,12 +51,13 @@ if hasattr(sys.stderr, "reconfigure"):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import evaluation, sessions, simulation, system, tests, voice
+from app.routes import evaluation, questions, sessions, simulation, system, tests, voice
 
 TAGS_METADATA = [
     {"name": "Simulation", "description": "Start a case and chat with the patient (text)."},
     {"name": "Voice", "description": "Speech-to-text and the full voice turn (audio in / audio out)."},
     {"name": "Tests", "description": "Order investigations (labs, imaging, ...) and read their results."},
+    {"name": "Questions", "description": "The final multiple-choice quiz for the session's case."},
     {"name": "Evaluation", "description": "Grade the doctor's OSCE performance."},
     {"name": "Sessions", "description": "Inspect or delete stored conversation history."},
     {"name": "System", "description": "Health check."},
@@ -83,6 +87,7 @@ app.add_middleware(
 app.include_router(simulation.router)
 app.include_router(voice.router)
 app.include_router(tests.router)
+app.include_router(questions.router)
 app.include_router(evaluation.router)
 app.include_router(sessions.router)
 app.include_router(system.router)

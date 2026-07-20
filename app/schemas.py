@@ -1,6 +1,6 @@
 """Pydantic request/response models for every endpoint."""
 
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -40,6 +40,31 @@ class TestResultResponse(BaseModel):
     id: str
     name: str
     result: str
+
+
+class ChoiceOut(BaseModel):
+    id: str
+    text: str
+
+
+class QuestionOut(BaseModel):
+    """A quiz question as the doctor sees it — correct_choice_id is never sent."""
+
+    id: str
+    text: str
+    choices: List[ChoiceOut]
+
+
+class AnswerRequest(BaseModel):
+    session_id: str
+    question_id: str
+    choice_id: str  # exactly one choice
+
+
+class AnswerResponse(BaseModel):
+    question_id: str
+    choice_id: str
+    recorded: bool
 
 
 class EvaluateRequest(BaseModel):

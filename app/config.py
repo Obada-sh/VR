@@ -13,6 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SCENARIOS_PATH = BASE_DIR / "scenarios.json"
 TEST_CATEGORIES_PATH = BASE_DIR / "test_categories.json"
 TESTS_PATH = BASE_DIR / "tests.json"
+QUESTIONS_PATH = BASE_DIR / "questions.json"
 
 # --- Speech-to-text (external ASR microservice) -------------------------------
 # STT uses CohereLabs/cohere-transcribe-arabic-07-2026, which needs transformers>=5.4,
