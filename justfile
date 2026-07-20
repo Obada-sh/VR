@@ -99,15 +99,15 @@ info:
     @& '{{py_main}}' --version
     @echo "stt venv:  {{py_stt}}"
     @& '{{py_stt}}' --version
-    @& '{{py_main}}' -c "from app import config as c; k='set' if c.API_KEY else 'NOT SET (put it in .env)'; print(f'llm:       {c.LLM_PROVIDER} / {c.MODEL_NAME}'); print(f'{c.API_KEY_ENV}: {k}')"
+    @& '{{py_main}}' -c "from app import config as c; print('llm chain: ' + (' -> '.join(str(p) for p in c.CHAIN) or 'EMPTY - no keys set, see .env.example')); print('no key for: ' + (', '.join(c.MISSING_KEYS) or '-'))"
 
-# List the models the current provider's key can actually reach
+# List the models each provider in the chain can actually reach
 models:
-    @& '{{py_main}}' -c "import requests; from app import config as c; url=c.API_URL.replace('/chat/completions','/models'); r=requests.get(url, headers={'Authorization': f'Bearer {c.API_KEY}'}, timeout=30); r.raise_for_status(); [print(m['id']) for m in sorted(r.json()['data'], key=lambda m: m['id'])]"
+    @& '{{py_main}}' -c "import requests; from app import config as c; [print(f'--- {p.name} ---') or [print(' ', m['id']) for m in sorted(requests.get(p.url.replace('/chat/completions','/models'), headers={'Authorization': f'Bearer {p.key}'}, timeout=30).json().get('data', []), key=lambda m: m['id'])] for p in c.CHAIN]"
 
-# Send one prompt through the configured provider (no GPU, no TTS)
+# Send one prompt through the chain (no GPU, no TTS); warnings show any failover
 llm-ping:
-    @& '{{py_main}}' -c "from app import config as c, llm; print(f'{c.LLM_PROVIDER} / {c.MODEL_NAME}'); print(llm.call_llm([{'role':'user','content':'قل مرحبا بكلمة واحدة'}], 32, 0.0))"
+    @& '{{py_main}}' -c "import logging; logging.basicConfig(level=logging.WARNING); from app import config as c, llm; print('chain: ' + ' -> '.join(str(p) for p in c.CHAIN)); print('reply: ' + llm.call_llm([{'role':'user','content':'قل مرحبا بكلمة واحدة'}], 32, 0.0))"
 
 # --- housekeeping ------------------------------------------------------------
 

@@ -1,6 +1,7 @@
 """Central configuration: environment variables, file paths, LLM constants."""
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 # --- LLM ---------------------------------------------------------------------
@@ -8,17 +9,26 @@ from pathlib import Path
 # is just a URL + model + key swap. Free tiers are catalogued at
 # https://github.com/cheahjs/free-llm-api-resources
 #
-# Pick one with LLM_PROVIDER in .env, then set that provider's key env var:
+# LLM_PROVIDERS in .env is an ordered FAILOVER CHAIN, not a single choice: each
+# request tries them left to right until one answers. Free tiers go down, run
+# out of daily quota, and rotate their model line-ups, so one provider alone is
+# not dependable — give the chain at least two.
 #
-#   LLM_PROVIDER=google      GOOGLE_API_KEY=...     (aistudio.google.com/apikey)
-#   LLM_PROVIDER=groq        GROQ_API_KEY=...       (console.groq.com/keys)
-#   LLM_PROVIDER=cerebras    CEREBRAS_API_KEY=...   (cloud.cerebras.ai)
-#   LLM_PROVIDER=openrouter  OPENROUTER_API_KEY=... (openrouter.ai/keys)
-#   LLM_PROVIDER=mistral     MISTRAL_API_KEY=...    (console.mistral.ai)
-#   LLM_PROVIDER=opencode    OPENCODE_API_KEY=...   (the original paid provider)
+#   LLM_PROVIDERS=google,groq,cerebras
+#
+# A provider is skipped entirely unless its key is set, so listing one you have
+# no key for costs nothing:
+#
+#   GOOGLE_API_KEY=...      aistudio.google.com/apikey
+#   GROQ_API_KEY=...        console.groq.com/keys
+#   CEREBRAS_API_KEY=...    cloud.cerebras.ai
+#   OPENROUTER_API_KEY=...  openrouter.ai/keys
+#   MISTRAL_API_KEY=...     console.mistral.ai
+#   OPENCODE_API_KEY=...    the original paid provider
 #
 # Model IDs go stale as providers rotate their free line-up — `just models`
-# lists what your key can actually reach, and LLM_MODEL overrides the default.
+# lists what a key can actually reach, and <PROVIDER>_MODEL overrides one
+# provider's default (e.g. GROQ_MODEL=llama-3.1-8b-instant).
 PROVIDERS = {
     "google": {
         "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
@@ -45,14 +55,6 @@ PROVIDERS = {
         "model": "mistral-large-latest",
         "key_env": "MISTRAL_API_KEY",
     },
-    # Free, but it logs every request/response, and its better models require
-    # opting into training use at https://logfare.ai/consent. deepseek-v4-flash
-    # and minimax-m3 need no opt-in.
-    "logfare": {
-        "url": "https://logfare.ai/v1/chat/completions",
-        "model": "deepseek-v4-flash",
-        "key_env": "LOGFARE_API_KEY",
-    },
     "opencode": {
         "url": "https://opencode.ai/zen/go/v1/chat/completions",
         "model": "deepseek-v4-flash",
@@ -60,22 +62,55 @@ PROVIDERS = {
     },
 }
 
-# Gemini is the default: the patient replies and the تشكيل pass are Arabic, and
-# it handles diacritics noticeably better than the free Llama/OSS models.
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "google").strip().lower()
-if LLM_PROVIDER not in PROVIDERS:
+@dataclass(frozen=True)
+class Provider:
+    """One resolved link in the failover chain."""
+
+    name: str
+    url: str
+    model: str
+    key_env: str
+    key: str
+
+    @property
+    def supports_thinking_flag(self) -> bool:
+        # The reasoning-off switch is opencode's own extension; other providers
+        # 400 on unknown top-level fields, so only send it there.
+        return self.name == "opencode"
+
+    def __str__(self) -> str:
+        return f"{self.name}/{self.model}"
+
+
+# Gemini leads: the patient replies and the تشكيل pass are Arabic, and it handles
+# diacritics noticeably better than the free Llama/OSS models. Groq and Cerebras
+# back it up — both are fast and their free quotas are generous.
+LLM_PROVIDERS = os.environ.get("LLM_PROVIDERS", "google,groq,cerebras")
+_names = [n.strip().lower() for n in LLM_PROVIDERS.split(",") if n.strip()]
+
+_unknown = [n for n in _names if n not in PROVIDERS]
+if _unknown:
     raise SystemExit(
-        f"LLM_PROVIDER={LLM_PROVIDER!r} is not one of: {', '.join(PROVIDERS)}"
+        f"LLM_PROVIDERS has unknown provider(s): {', '.join(_unknown)}. "
+        f"Valid: {', '.join(PROVIDERS)}"
     )
 
-_provider = PROVIDERS[LLM_PROVIDER]
-API_KEY_ENV = _provider["key_env"]
-API_URL = os.environ.get("LLM_API_URL", "") or _provider["url"]
-MODEL_NAME = os.environ.get("LLM_MODEL", "") or _provider["model"]
-API_KEY = os.environ.get(API_KEY_ENV, "")
-# The reasoning-off switch is opencode's own extension; other providers 400 on
-# unknown top-level fields, so only send it there.
-SUPPORTS_THINKING_FLAG = LLM_PROVIDER == "opencode"
+# Only providers we hold a key for are usable; the rest are silently skipped so
+# the default chain works no matter which keys you have.
+CHAIN = [
+    Provider(
+        name=n,
+        url=PROVIDERS[n]["url"],
+        model=os.environ.get(f"{n.upper()}_MODEL", "") or PROVIDERS[n]["model"],
+        key_env=PROVIDERS[n]["key_env"],
+        key=os.environ.get(PROVIDERS[n]["key_env"], ""),
+    )
+    for n in _names
+    if os.environ.get(PROVIDERS[n]["key_env"], "")
+]
+
+# Names that were asked for but have no key — reported when the chain is empty.
+MISSING_KEYS = [PROVIDERS[n]["key_env"] for n in _names if n not in {p.name for p in CHAIN}]
 
 # --- Data files (project root, next to main.py) ------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
