@@ -10,7 +10,7 @@
 #   just all          both (STT in a new window, then main here)
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
-set dotenv-load := true   # OPENCODE_API_KEY etc. are read from .env (gitignored)
+set dotenv-load := true   # LLM_PROVIDER, the API keys etc. come from .env (gitignored)
 
 py_main := 'myenv\Scripts\python.exe'
 py_stt  := 'sttenv\Scripts\python.exe'
@@ -99,7 +99,15 @@ info:
     @& '{{py_main}}' --version
     @echo "stt venv:  {{py_stt}}"
     @& '{{py_stt}}' --version
-    @if ($env:OPENCODE_API_KEY) { echo "OPENCODE_API_KEY: set" } else { echo "OPENCODE_API_KEY: NOT SET (put it in .env)" }
+    @& '{{py_main}}' -c "from app import config as c; k='set' if c.API_KEY else 'NOT SET (put it in .env)'; print(f'llm:       {c.LLM_PROVIDER} / {c.MODEL_NAME}'); print(f'{c.API_KEY_ENV}: {k}')"
+
+# List the models the current provider's key can actually reach
+models:
+    @& '{{py_main}}' -c "import requests; from app import config as c; url=c.API_URL.replace('/chat/completions','/models'); r=requests.get(url, headers={'Authorization': f'Bearer {c.API_KEY}'}, timeout=30); r.raise_for_status(); [print(m['id']) for m in sorted(r.json()['data'], key=lambda m: m['id'])]"
+
+# Send one prompt through the configured provider (no GPU, no TTS)
+llm-ping:
+    @& '{{py_main}}' -c "from app import config as c, llm; print(f'{c.LLM_PROVIDER} / {c.MODEL_NAME}'); print(llm.call_llm([{'role':'user','content':'قل مرحبا بكلمة واحدة'}], 32, 0.0))"
 
 # --- housekeeping ------------------------------------------------------------
 

@@ -6,7 +6,14 @@ from typing import List
 import requests
 from fastapi import HTTPException
 
-from .config import API_KEY, API_URL, MODEL_NAME
+from .config import (
+    API_KEY,
+    API_KEY_ENV,
+    API_URL,
+    LLM_PROVIDER,
+    MODEL_NAME,
+    SUPPORTS_THINKING_FLAG,
+)
 from .prompts import TASHKEEL_PROMPT
 
 
@@ -31,7 +38,10 @@ def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
     if not API_KEY:
         raise HTTPException(
             status_code=500,
-            detail="OPENCODE_API_KEY environment variable is not set.",
+            detail=(
+                f"{API_KEY_ENV} is not set (LLM_PROVIDER={LLM_PROVIDER}). "
+                "Put it in .env — see .env.example."
+            ),
         )
     headers = {
         "Content-Type": "application/json",
@@ -42,13 +52,14 @@ def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "thinking": {"type": "disabled"},
     }
+    if SUPPORTS_THINKING_FLAG:
+        payload["thinking"] = {"type": "disabled"}
     try:
         resp = requests.post(API_URL, headers=headers, json=payload, timeout=60)
         resp.raise_for_status()
     except requests.RequestException as e:
-        detail = f"LLM request failed: {e}"
+        detail = f"LLM request failed ({LLM_PROVIDER}/{MODEL_NAME}): {e}"
         resp_text = getattr(getattr(e, "response", None), "text", None)
         if resp_text:
             detail += f" | server said: {resp_text}"
