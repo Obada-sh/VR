@@ -8,7 +8,13 @@ from fastapi import HTTPException
 
 import logging
 
-from .config import CHAIN, MISSING_KEYS, Provider
+from .config import (
+    CHAIN,
+    LLM_FAILOVER_TIMEOUT,
+    LLM_TIMEOUT,
+    MISSING_KEYS,
+    Provider,
+)
 
 log = logging.getLogger(__name__)
 from .prompts import TASHKEEL_PROMPT
@@ -32,7 +38,11 @@ def strip_stage_directions(text: str) -> str:
 
 
 def _post_once(
-    provider: Provider, messages: List[dict], max_tokens: int, temperature: float
+    provider: Provider,
+    messages: List[dict],
+    max_tokens: int,
+    temperature: float,
+    timeout: float = LLM_TIMEOUT,
 ) -> str:
     """One attempt against one provider. Raises on any failure."""
     payload = {
@@ -51,10 +61,19 @@ def _post_once(
             "Authorization": f"Bearer {provider.key}",
         },
         json=payload,
-        timeout=60,
+        timeout=timeout,
     )
     resp.raise_for_status()
-    return strip_think(resp.json()["choices"][0]["message"]["content"].strip())
+    text = strip_think(resp.json()["choices"][0]["message"]["content"].strip())
+
+    # A reasoning model that ran out of max_tokens mid-thought leaves an unclosed
+    # <think>, which strip_think can't match — without this the patient would
+    # "say" the model's reasoning out loud. Treat it as a failure and fail over.
+    if "<think>" in text:
+        raise ValueError("truncated <think> block (model ran past max_tokens)")
+    if not text:
+        raise ValueError("empty completion")
+    return text
 
 
 def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
@@ -75,9 +94,11 @@ def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
         )
 
     failures = []
-    for provider in CHAIN:
+    last = len(CHAIN) - 1
+    for i, provider in enumerate(CHAIN):
+        timeout = LLM_TIMEOUT if i == last else LLM_FAILOVER_TIMEOUT
         try:
-            return _post_once(provider, messages, max_tokens, temperature)
+            return _post_once(provider, messages, max_tokens, temperature, timeout)
         except (requests.RequestException, KeyError, ValueError) as e:
             # KeyError/ValueError: a 200 whose body isn't the shape we expect.
             reason = str(e)

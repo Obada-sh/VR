@@ -11,10 +11,14 @@ from pathlib import Path
 #
 # LLM_PROVIDERS in .env is an ordered FAILOVER CHAIN, not a single choice: each
 # request tries them left to right until one answers. Free tiers go down, run
-# out of daily quota, and rotate their model line-ups, so one provider alone is
-# not dependable — give the chain at least two.
+# out of daily quota, and retire model IDs, so one provider alone is not
+# dependable — give the chain at least two.
 #
-#   LLM_PROVIDERS=google,groq,cerebras
+#   LLM_PROVIDERS=google:gemini-3.5-flash,google:gemini-3.1-flash-lite,groq
+#
+# A link is "provider" (its default model) or "provider:model". The same
+# provider may appear more than once with different models — that is how you put
+# a strong-but-busy model in front of a reliable smaller one.
 #
 # A provider is skipped entirely unless its key is set, so listing one you have
 # no key for costs nothing:
@@ -32,7 +36,9 @@ from pathlib import Path
 PROVIDERS = {
     "google": {
         "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "model": "gemini-2.5-flash",
+        # flash-lite answers reliably; the bigger flash models 503 under free-tier
+        # load, so the default chain puts one of those first and falls back here.
+        "model": "gemini-3.1-flash-lite",
         "key_env": "GOOGLE_API_KEY",
     },
     "groq": {
@@ -40,6 +46,8 @@ PROVIDERS = {
         "model": "llama-3.3-70b-versatile",
         "key_env": "GROQ_API_KEY",
     },
+    # Note: this account's key gets 402 Payment Required on chat/completions
+    # (listing models still works), so cerebras is not in the default chain.
     "cerebras": {
         "url": "https://api.cerebras.ai/v1/chat/completions",
         "model": "gpt-oss-120b",
@@ -82,13 +90,32 @@ class Provider:
         return f"{self.name}/{self.model}"
 
 
-# Gemini leads: the patient replies and the تشكيل pass are Arabic, and it handles
-# diacritics noticeably better than the free Llama/OSS models. Groq and Cerebras
-# back it up — both are fast and their free quotas are generous.
-LLM_PROVIDERS = os.environ.get("LLM_PROVIDERS", "google,groq,cerebras")
-_names = [n.strip().lower() for n in LLM_PROVIDERS.split(",") if n.strip()]
+# Gemini leads: the patient replies and the تشكيل pass are Arabic, and measured
+# on the تشكيل prompt it was the only family that kept the Damascene wording
+# instead of drifting to Fusha (llama/allam both "corrected" كتير -> كثير).
+#
+# flash-lite leads rather than the bigger gemini-3.5-flash: on this free tier
+# 3.5-flash 503s constantly and sometimes hangs to a read timeout, and every
+# patient turn costs TWO calls (reply + تشكيل), so a slow first link is felt
+# twice. flash-lite also scored best on the تشكيل probe. Put 3.5-flash in front
+# if you want its quality and can absorb the stalls.
+LLM_PROVIDERS = os.environ.get("LLM_PROVIDERS", "google:gemini-3.1-flash-lite,groq")
 
-_unknown = [n for n in _names if n not in PROVIDERS]
+# A dead-but-listening provider is worse than a failing one: it burns the whole
+# timeout before we can move on. Non-final links get a short leash; the last one
+# gets the full budget because there is nothing to fall back to.
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "60"))
+LLM_FAILOVER_TIMEOUT = float(os.environ.get("LLM_FAILOVER_TIMEOUT", "20"))
+
+_links = []
+for item in LLM_PROVIDERS.split(","):
+    item = item.strip()
+    if not item:
+        continue
+    name, _, model = item.partition(":")
+    _links.append((name.strip().lower(), model.strip()))
+
+_unknown = sorted({n for n, _ in _links if n not in PROVIDERS})
 if _unknown:
     raise SystemExit(
         f"LLM_PROVIDERS has unknown provider(s): {', '.join(_unknown)}. "
@@ -96,21 +123,23 @@ if _unknown:
     )
 
 # Only providers we hold a key for are usable; the rest are silently skipped so
-# the default chain works no matter which keys you have.
+# the default chain works no matter which keys you have. Model precedence:
+# explicit provider:model > <PROVIDER>_MODEL env > the registry default.
 CHAIN = [
     Provider(
         name=n,
         url=PROVIDERS[n]["url"],
-        model=os.environ.get(f"{n.upper()}_MODEL", "") or PROVIDERS[n]["model"],
+        model=model or os.environ.get(f"{n.upper()}_MODEL", "") or PROVIDERS[n]["model"],
         key_env=PROVIDERS[n]["key_env"],
         key=os.environ.get(PROVIDERS[n]["key_env"], ""),
     )
-    for n in _names
+    for n, model in _links
     if os.environ.get(PROVIDERS[n]["key_env"], "")
 ]
 
-# Names that were asked for but have no key — reported when the chain is empty.
-MISSING_KEYS = [PROVIDERS[n]["key_env"] for n in _names if n not in {p.name for p in CHAIN}]
+# Keys that were asked for but not set — reported when the chain is empty.
+_have = {p.name for p in CHAIN}
+MISSING_KEYS = sorted({PROVIDERS[n]["key_env"] for n, _ in _links if n not in _have})
 
 # --- Data files (project root, next to main.py) ------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
