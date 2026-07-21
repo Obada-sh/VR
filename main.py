@@ -31,7 +31,7 @@ Run:
 
 import os
 
-# faster-whisper (CTranslate2) and Leva-TTS (PyTorch) each bundle their own
+# faster-whisper (CTranslate2) and VoxCPM2 (PyTorch) each bundle their own
 # copy of the Intel OpenMP runtime (libiomp5md.dll). Loading both into one
 # process segfaults on Windows. This tells the loader to tolerate the duplicate.
 # MUST be set before torch / ctranslate2 are imported (i.e. before anything
@@ -71,7 +71,7 @@ app = FastAPI(
         "**Typical flow:** `GET /scenarios` → `POST /start` → `POST /chat` "
         "(or `POST /chat-voice` for voice) each turn → `POST /evaluate`.\n\n"
         "Speech runs locally on the GPU: **Cohere Transcribe** for speech-to-text "
-        "and **Leva-TTS** for Damascene (Levantine) text-to-speech."
+        "and **VoxCPM2** for Damascene (Levantine) text-to-speech."
     ),
     openapi_tags=TAGS_METADATA,
 )

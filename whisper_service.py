@@ -7,11 +7,11 @@ here for the Damascus-dialect doctor audio.
 
 Why a separate process AND a separate venv
 ------------------------------------------
-This model needs `transformers>=5.4.0`, but Leva-TTS (in the main venv) pins
-`transformers<5`. The two can't coexist in one environment. Speech-to-text
-therefore lives here, in its OWN venv (`sttenv`), in its OWN process, and the
-main API (main.py) calls it over HTTP. The main process holds ONLY PyTorch/
-Leva-TTS (transformers<5); this process holds ONLY the Cohere ASR model
+This model needs `transformers>=5.4.0`, but the VoxCPM2 TTS engine (in the main
+venv) pins an older `transformers`. The two can't coexist in one environment.
+Speech-to-text therefore lives here, in its OWN venv (`sttenv`), in its OWN
+process, and the main API (main.py) calls it over HTTP. The main process holds
+ONLY PyTorch/VoxCPM2; this process holds ONLY the Cohere ASR model
 (transformers>=5.4). They never collide.
 
 Setup (once), in this service's venv:

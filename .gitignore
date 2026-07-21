@@ -15,4 +15,5 @@ dist/
 build/
 *.pth
 *.safetensors
+models/
 .cache/

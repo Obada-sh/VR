@@ -1,6 +1,6 @@
 """Voice: speech-to-text and the full voice turn (audio in / audio out).
 
-NOTE: this module imports tts, which loads the Leva-TTS model onto the GPU at
+NOTE: this module imports tts, which loads the VoxCPM2 model onto the GPU at
 import time. main.py's bootstrap (KMP_DUPLICATE_LIB_OK + utf-8 stdout) must run
 BEFORE this module is imported — which it does, because main.py sets those up
 before including any router.
@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, Response, UploadFile
 
-import tts  # local Leva-TTS; loads the model onto the GPU at import time
+import tts  # local VoxCPM2; loads the model onto the GPU at import time
 
 from ..llm import add_tashkeel
 from ..schemas import TranscribeResponse
@@ -30,7 +30,7 @@ def chat_voice(session_id: str = Form(...), file: UploadFile = File(...)):
 
     Pipeline: Cohere Transcribe transcribes the doctor's audio -> LLM fixes the
     Damascus-dialect STT mistakes -> the patient LLM answers -> an LLM pass adds
-    diacritics (تشكيل) to that answer -> Leva-TTS speaks it in a female
+    diacritics (تشكيل) to that answer -> VoxCPM2 speaks it in a
     Damascene (Levantine) voice.
 
     Send as multipart/form-data with fields `session_id` and `file`.

@@ -16,9 +16,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-# Two venvs on purpose: Leva-TTS pins transformers<5, the Cohere STT model needs
-# transformers>=5.4. Each service must run on its OWN python.
-$py    = ".\myenv\Scripts\python.exe"    # main API + Leva-TTS
+# Two venvs on purpose: the VoxCPM2 TTS engine pins an older transformers, the
+# Cohere STT model needs transformers>=5.4. Each service must run on its OWN python.
+$py    = ".\myenv\Scripts\python.exe"    # main API + VoxCPM2
 $pyStt = ".\sttenv\Scripts\python.exe"   # STT service
 
 function Test-SttReady {

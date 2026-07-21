@@ -41,11 +41,17 @@ def transcribe_and_fix(file: UploadFile) -> dict:
     if not raw_text:
         raise HTTPException(status_code=400, detail="No speech detected in the audio.")
 
-    corrected = call_llm(
-        [{"role": "user", "content": STT_FIX_PROMPT.format(raw_text=raw_text)}],
-        max_tokens=800,
-        temperature=0.2,
-    )
+    # The dialect fix is a polish pass, not a requirement. If the LLM is down or
+    # returns nothing usable, speak the raw transcript rather than failing the
+    # whole voice turn (same fallback policy as add_tashkeel).
+    try:
+        corrected = call_llm(
+            [{"role": "user", "content": STT_FIX_PROMPT.format(raw_text=raw_text)}],
+            max_tokens=800,
+            temperature=0.2,
+        ) or raw_text
+    except HTTPException:
+        corrected = raw_text
 
     return {
         "text": corrected,

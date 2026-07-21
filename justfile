@@ -1,8 +1,8 @@
 # Patient Simulator — task runner.
 #
-# The project needs TWO venvs: Leva-TTS pins transformers<5, the Cohere STT model
-# needs transformers>=5.4. Every recipe below calls the right venv's python
-# directly, so you never have to activate anything.
+# The project needs TWO venvs: the VoxCPM2 TTS engine pins an older transformers,
+# the Cohere STT model needs transformers>=5.4. Every recipe below calls the right
+# venv's python directly, so you never have to activate anything.
 #
 #   just              list all recipes
 #   just main         main API on :8000
@@ -25,7 +25,7 @@ default:
 
 # --- run ---------------------------------------------------------------------
 
-# Main API on :8000 (loads Leva-TTS onto the GPU at startup)
+# Main API on :8000 (loads VoxCPM2 onto the GPU at startup)
 main:
     & '{{py_main}}' -m uvicorn main:app --host {{host}} --port {{main_port}}
 
@@ -63,7 +63,7 @@ venvs:
 # Install/update dependencies in both venvs
 install: install-main install-stt
 
-# Install the main API + Leva-TTS deps into myenv
+# Install the main API + VoxCPM2 deps into myenv
 install-main:
     uv pip install --python '{{py_main}}' -r requirements.txt
 
@@ -71,6 +71,13 @@ install-main:
 install-stt:
     uv pip install --python '{{py_stt}}' torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
     uv pip install --python '{{py_stt}}' -r requirements-stt.txt
+
+# Download the VoxCPM2 TTS weights with aria2c (resumable — rerun if it drops).
+# Uses the hf-mirror.com mirror: HuggingFace's own downloader and hf_transfer
+# both stall on this network. Lands in models/VoxCPM2, which tts.py prefers.
+model-tts:
+    @New-Item -ItemType Directory -Force models\VoxCPM2 | Out-Null
+    @foreach ($f in 'config.json','model.safetensors','audiovae.pth','special_tokens_map.json','tokenization_voxcpm2.py','tokenizer.json','tokenizer_config.json') { aria2c -x16 -s16 -c -d models\VoxCPM2 -o $f "https://hf-mirror.com/openbmb/VoxCPM2/resolve/main/$f" }
 
 # Download the gated Cohere STT model (needs `hf auth login` + accepted license)
 model-stt:

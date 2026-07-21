@@ -1,6 +1,6 @@
 # Dependencies for the STT microservice (whisper_service.py), which runs in its
 # OWN venv (sttenv) because CohereLabs/cohere-transcribe-arabic-07-2026 needs
-# transformers>=5.4 while Leva-TTS (main venv) pins transformers<5.
+# transformers>=5.4 while the VoxCPM2 TTS engine (main venv) pins an older transformers.
 #
 # Install into a dedicated venv:
 #   python -m venv sttenv

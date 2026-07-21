@@ -10,6 +10,11 @@ from .config import API_KEY, API_URL, MODEL_NAME
 from .prompts import TASHKEEL_PROMPT
 
 
+# Extra token budget so the model's (unavoidable) reasoning doesn't crowd out
+# the actual answer. See the payload comment in call_llm.
+REASONING_HEADROOM = 1024
+
+
 def strip_think(text: str) -> str:
     """Remove <think>...</think> reasoning blocks the model may emit."""
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
@@ -41,7 +46,12 @@ def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
         "model": MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        # mimo-v2.5 is a reasoning model and IGNORES the "thinking: disabled"
+        # flag below — it still emits reasoning tokens, and they're billed
+        # against max_tokens. With no headroom the reasoning eats the whole
+        # budget, the answer never gets written, and `content` comes back null.
+        # `max_tokens` from callers means "room for the ANSWER", so add to it.
+        "max_tokens": max_tokens + REASONING_HEADROOM,
         "thinking": {"type": "disabled"},
     }
     try:
@@ -55,7 +65,34 @@ def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
         raise HTTPException(status_code=502, detail=detail)
 
     data = resp.json()
-    return strip_think(data["choices"][0]["message"]["content"].strip())
+    try:
+        choice = data["choices"][0]
+    except (KeyError, IndexError, TypeError):
+        raise HTTPException(status_code=502, detail=f"LLM returned no choices: {str(data)[:500]}")
+
+    message = choice.get("message") or {}
+    content = message.get("content")
+    if content:
+        return strip_think(content.strip())
+
+    # `content` is null. Say WHY instead of blowing up on .strip() — a reasoning
+    # model that spent its whole budget thinking looks identical to a refusal
+    # unless you check finish_reason.
+    finish = choice.get("finish_reason")
+    if message.get("refusal"):
+        raise HTTPException(status_code=502, detail=f"LLM refused the request: {message['refusal']}")
+    if finish == "length":
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"LLM ({MODEL_NAME}) used its entire token budget on reasoning without "
+                f"writing an answer. Raise max_tokens / REASONING_HEADROOM in app/llm.py."
+            ),
+        )
+    raise HTTPException(
+        status_code=502,
+        detail=f"LLM ({MODEL_NAME}) returned empty content (finish_reason={finish!r}).",
+    )
 
 
 def add_tashkeel(text: str) -> str:
