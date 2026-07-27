@@ -20,6 +20,11 @@ Flow:
   6. Optionally POST /evaluate with { session_id } to grade the doctor.
   7. POST /chat-voice with { session_id, file } (multipart) is the full VOICE
      version of /chat; POST /transcribe is speech-to-text only.
+  8. WS /ws/voice?session_id=... is the REAL-TIME voice channel and the one the
+     VR client should use: the mic streams in continuously, server-side VAD
+     decides when the doctor stopped talking, and the patient's reply streams
+     back sentence by sentence (~2-3s to first audio vs ~15s for /chat-voice).
+     Client protocol: see UNITY_VOICE_CLIENT.md.
 
 This file only bootstraps the process and assembles the app — all real code
 lives in the app/ package (see app/__init__.py for the map). It stays at the
@@ -51,7 +56,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import evaluation, questions, sessions, simulation, system, tests, voice
+from app.routes import evaluation, questions, sessions, simulation, system, tests, voice, voice_ws
 
 TAGS_METADATA = [
     {"name": "Simulation", "description": "Start a case and chat with the patient (text)."},
@@ -86,6 +91,7 @@ app.add_middleware(
 
 app.include_router(simulation.router)
 app.include_router(voice.router)
+app.include_router(voice_ws.router)
 app.include_router(tests.router)
 app.include_router(questions.router)
 app.include_router(evaluation.router)

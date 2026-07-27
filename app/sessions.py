@@ -12,11 +12,11 @@ or a database.
 """
 
 import threading
-from typing import Dict
+from typing import Dict, Iterator
 
 from fastapi import HTTPException
 
-from .llm import call_llm, strip_stage_directions
+from .llm import call_llm, iter_sentences, stream_llm, strip_stage_directions
 
 SESSIONS: Dict[str, dict] = {}
 _lock = threading.Lock()  # sync endpoints run in a threadpool -> guard mutations
@@ -80,3 +80,30 @@ def run_chat_turn(session: dict, message: str) -> str:
         session["messages"].append({"role": "assistant", "content": reply})
 
     return reply
+
+
+def stream_chat_turn(session: dict, message: str) -> Iterator[str]:
+    """Streaming twin of run_chat_turn: yields the reply one speakable chunk at a time.
+
+    The caller can hand each chunk straight to the TTS, so the patient starts
+    talking long before the model has finished generating.
+
+    Whatever was yielded is stored as the assistant turn even if the consumer
+    stops early (barge-in) — the patient really did say those words out loud, so
+    the history has to reflect that.
+    """
+    with _lock:
+        session["messages"].append({"role": "user", "content": message})
+        messages_snapshot = list(session["messages"])
+
+    spoken: list = []
+    try:
+        for sentence in iter_sentences(
+            stream_llm(messages_snapshot, max_tokens=800, temperature=0.2)
+        ):
+            spoken.append(sentence)
+            yield sentence
+    finally:
+        reply = " ".join(spoken).strip()
+        with _lock:
+            session["messages"].append({"role": "assistant", "content": reply})

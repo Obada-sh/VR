@@ -5,6 +5,9 @@ pydantic
 python-multipart
 leva-tts
 soundfile
+numpy
+silero-vad          # server-side VAD for the /ws/voice endpoint (runs on CPU via onnxruntime)
+onnxruntime
 # NOTE: speech-to-text is NOT installed here. It runs in a separate venv/process
 # (whisper_service.py) — see requirements-stt.txt — because its transformers>=5.4
 # conflicts with leva-tts's transformers<5.

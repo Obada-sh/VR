@@ -1,7 +1,17 @@
-"""LLM HTTP call plus the text-cleanup passes that wrap it."""
+"""LLM HTTP calls (blocking + streaming) plus the text-cleanup passes.
 
+Two ways to call the model:
+  call_llm()   — blocking, returns the whole reply. Used by the REST endpoints.
+  stream_llm() — yields text deltas as they arrive. Used by the voice WebSocket,
+                 where the point is to start speaking before generation finishes.
+
+iter_sentences() sits on top of stream_llm() and regroups the deltas into
+TTS-sized speakable chunks, which is what makes the voice turn feel fast.
+"""
+
+import json
 import re
-from typing import List
+from typing import Iterable, Iterator, List
 
 import requests
 from fastapi import HTTPException
@@ -27,23 +37,31 @@ def strip_stage_directions(text: str) -> str:
     return text.strip()
 
 
-def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
+def _headers() -> dict:
     if not API_KEY:
         raise HTTPException(
             status_code=500,
             detail="OPENCODE_API_KEY environment variable is not set.",
         )
-    headers = {
+    return {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}",
     }
-    payload = {
+
+
+def _payload(messages: List[dict], max_tokens: int, temperature: float) -> dict:
+    return {
         "model": MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "thinking": {"type": "disabled"},
     }
+
+
+def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
+    headers = _headers()
+    payload = _payload(messages, max_tokens, temperature)
     try:
         resp = requests.post(API_URL, headers=headers, json=payload, timeout=60)
         resp.raise_for_status()
@@ -56,6 +74,121 @@ def call_llm(messages: List[dict], max_tokens: int, temperature: float) -> str:
 
     data = resp.json()
     return strip_think(data["choices"][0]["message"]["content"].strip())
+
+
+# --- Streaming ---------------------------------------------------------------
+
+def stream_llm(messages: List[dict], max_tokens: int, temperature: float) -> Iterator[str]:
+    """Yield the reply as text deltas, as the model produces them.
+
+    Falls back to one blocking call (yielding the whole reply as a single chunk)
+    if the endpoint rejects or mishandles `stream: true`, so a server-side
+    change can never take voice chat down — it only makes it slower.
+    """
+    headers = _headers()
+    payload = _payload(messages, max_tokens, temperature) | {"stream": True}
+
+    try:
+        with requests.post(
+            API_URL, headers=headers, json=payload, stream=True, timeout=(10, 120)
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    return
+                try:
+                    choices = json.loads(data).get("choices") or []
+                except json.JSONDecodeError:
+                    continue                      # keep-alive / comment line
+                if not choices:
+                    continue
+                delta = (choices[0].get("delta") or {}).get("content")
+                if delta:
+                    yield delta
+    except requests.RequestException:
+        yield call_llm(messages, max_tokens, temperature)
+
+
+def _strip_think_stream(deltas: Iterable[str]) -> Iterator[str]:
+    """Drop <think>...</think> spans from a delta stream without buffering it all.
+
+    Thinking is disabled in the payload, so this should never fire — but a leaked
+    reasoning block would be spoken aloud by the patient, so guard anyway.
+    """
+    open_tag, close_tag = "<think>", "</think>"
+    buf, in_think = "", False
+
+    for delta in deltas:
+        buf += delta
+        out = ""
+        while buf:
+            if in_think:
+                i = buf.find(close_tag)
+                if i == -1:
+                    # Discard, but keep a tail in case the tag is split across deltas.
+                    buf = buf[-(len(close_tag) - 1):]
+                    break
+                buf, in_think = buf[i + len(close_tag):], False
+            else:
+                i = buf.find(open_tag)
+                if i == -1:
+                    hold = len(open_tag) - 1     # a partial opening tag may follow
+                    if len(buf) > hold:
+                        out, buf = out + buf[:-hold], buf[-hold:]
+                    break
+                out, buf, in_think = out + buf[:i], buf[i + len(open_tag):], True
+        if out:
+            yield out
+
+    if buf and not in_think:
+        yield buf
+
+
+# Where it is always safe to break for speech, and where it is only worth it
+# once the chunk is long enough to sound natural on its own.
+_STRONG_BREAKS = ".!?؟\n"
+_WEAK_BREAKS = "،؛,:"
+_MIN_WEAK_CHARS = 60      # don't cut on a comma until the chunk has some body
+_MAX_CHARS = 200          # force a break if the model never punctuates
+
+
+def _find_break(buf: str) -> int | None:
+    """Index just past the best place to cut `buf`, or None to keep accumulating."""
+    for i, ch in enumerate(buf):
+        if ch in _STRONG_BREAKS:
+            # Not a sentence end if it's a decimal point — "حرارتي 37.5" must
+            # stay in one piece or the TTS reads it as two fragments.
+            if ch == "." and 0 < i < len(buf) - 1 and buf[i - 1].isdigit() and buf[i + 1].isdigit():
+                continue
+            return i + 1
+        if ch in _WEAK_BREAKS and i + 1 >= _MIN_WEAK_CHARS:
+            return i + 1
+
+    if len(buf) >= _MAX_CHARS:
+        space = buf.rfind(" ", 0, _MAX_CHARS)
+        return space + 1 if space > 0 else _MAX_CHARS
+    return None
+
+
+def iter_sentences(deltas: Iterable[str]) -> Iterator[str]:
+    """Regroup raw LLM deltas into speakable, TTS-sized chunks.
+
+    Each yielded chunk is ready to hand straight to the TTS: reasoning blocks
+    removed, stage directions stripped, cut on natural speech boundaries.
+    """
+    buf = ""
+    for delta in _strip_think_stream(deltas):
+        buf += delta
+        while (cut := _find_break(buf)) is not None:
+            piece, buf = buf[:cut], buf[cut:]
+            if piece := strip_stage_directions(piece).strip():
+                yield piece
+
+    if tail := strip_stage_directions(buf).strip():
+        yield tail
 
 
 def add_tashkeel(text: str) -> str:

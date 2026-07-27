@@ -21,3 +21,12 @@ QUESTIONS_PATH = BASE_DIR / "questions.json"
 # SEPARATE service (its own venv + process) that we call over HTTP.
 # Start it FIRST:  just stt   (or: python -m uvicorn whisper_service:app --port 8001)
 WHISPER_SERVICE_URL = os.environ.get("WHISPER_SERVICE_URL", "http://127.0.0.1:8001")
+
+# --- Voice WebSocket ----------------------------------------------------------
+# The REST /chat-voice path runs an LLM pass that adds Arabic diacritics (تشكيل)
+# before speaking. On the WebSocket path that pass is OFF by default: it is a
+# full LLM round trip sitting in front of the FIRST audio chunk, and Leva-TTS
+# already applies Levantine diacritics from its own lexicon
+# (leva_tts/text/processor.py). Listen to both and decide:
+#     set VOICE_WS_TASHKEEL=1   -> better pronunciation, ~1-3s slower to first audio
+VOICE_WS_TASHKEEL = os.environ.get("VOICE_WS_TASHKEEL", "0") == "1"
