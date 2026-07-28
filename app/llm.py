@@ -93,6 +93,12 @@ def stream_llm(messages: List[dict], max_tokens: int, temperature: float) -> Ite
             API_URL, headers=headers, json=payload, stream=True, timeout=(10, 120)
         ) as resp:
             resp.raise_for_status()
+            # `requests` picks the decode encoding from Content-Type. SSE responses
+            # are "text/event-stream" with no charset param, and requests' own rule
+            # for a bare "text/*" type defaults that to ISO-8859-1 (not UTF-8) — so
+            # every Arabic byte pair gets decoded one byte at a time as Latin-1,
+            # producing exactly the "Ã¢Ã£Ã¢..." mojibake this line fixes.
+            resp.encoding = "utf-8"
             for line in resp.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data:"):
                     continue
@@ -159,10 +165,17 @@ def _find_break(buf: str) -> int | None:
     """Index just past the best place to cut `buf`, or None to keep accumulating."""
     for i, ch in enumerate(buf):
         if ch in _STRONG_BREAKS:
-            # Not a sentence end if it's a decimal point — "حرارتي 37.5" must
+            # A '.' after a digit may be a decimal point — "حرارتي 37.5" must
             # stay in one piece or the TTS reads it as two fragments.
-            if ch == "." and 0 < i < len(buf) - 1 and buf[i - 1].isdigit() and buf[i + 1].isdigit():
-                continue
+            if ch == "." and i > 0 and buf[i - 1].isdigit():
+                if i == len(buf) - 1:
+                    # The next character hasn't streamed in yet, so we cannot
+                    # tell a decimal from a full stop. Wait rather than guess:
+                    # deltas arrive token-sized, so "37." and "5" routinely land
+                    # in separate chunks.
+                    return None
+                if buf[i + 1].isdigit():
+                    continue
             return i + 1
         if ch in _WEAK_BREAKS and i + 1 >= _MIN_WEAK_CHARS:
             return i + 1
@@ -173,22 +186,65 @@ def _find_break(buf: str) -> int | None:
     return None
 
 
-def iter_sentences(deltas: Iterable[str]) -> Iterator[str]:
-    """Regroup raw LLM deltas into speakable, TTS-sized chunks.
+# Stage directions the patient must never "say". Stripped per-character rather
+# than per-sentence so live text can be displayed without a direction flashing
+# on screen before a later pass removes it. '*' both opens and closes.
+# Written as escapes, not literals: the fullwidth forms get silently flattened
+# to ASCII by some editors/linters, which would drop （ ） support unnoticed.
+_DIRECTION_OPEN = "(（*"
+_DIRECTION_CLOSE = ")）*"
 
-    Each yielded chunk is ready to hand straight to the TTS: reasoning blocks
-    removed, stage directions stripped, cut on natural speech boundaries.
+
+def _clean_stream(deltas: Iterable[str]) -> Iterator[str]:
+    """Yield display-ready text: no <think> blocks, no stage directions.
+
+    Safe to append verbatim to a UI as it arrives — nothing yielded here will
+    need to be retracted later.
+    """
+    in_direction = False
+    for delta in _strip_think_stream(deltas):
+        out = []
+        for ch in delta:
+            if in_direction:
+                if ch in _DIRECTION_CLOSE:
+                    in_direction = False
+            elif ch in _DIRECTION_OPEN:
+                in_direction = True
+            else:
+                out.append(ch)
+        if out:
+            yield "".join(out)
+
+
+def iter_reply_stream(deltas: Iterable[str]) -> Iterator[tuple[str, str]]:
+    """Split one LLM stream into the two things the voice turn needs at once.
+
+    Yields ('delta', text) the instant text arrives — for live character-by-
+    character display — and ('sentence', text) at each speech boundary, which is
+    the unit the TTS can actually synthesize with correct prosody.
+
+    Every character appears in exactly one 'delta'; the 'sentence' events repeat
+    that same text regrouped, so a consumer should render one or the other, not
+    both.
     """
     buf = ""
-    for delta in _strip_think_stream(deltas):
-        buf += delta
+    for clean in _clean_stream(deltas):
+        yield "delta", clean
+        buf += clean
         while (cut := _find_break(buf)) is not None:
             piece, buf = buf[:cut], buf[cut:]
-            if piece := strip_stage_directions(piece).strip():
-                yield piece
+            if piece := re.sub(r"\s{2,}", " ", piece).strip():
+                yield "sentence", piece
 
-    if tail := strip_stage_directions(buf).strip():
-        yield tail
+    if tail := re.sub(r"\s{2,}", " ", buf).strip():
+        yield "sentence", tail
+
+
+def iter_sentences(deltas: Iterable[str]) -> Iterator[str]:
+    """Just the speakable chunks — the sentence half of iter_reply_stream()."""
+    for kind, text in iter_reply_stream(deltas):
+        if kind == "sentence":
+            yield text
 
 
 def add_tashkeel(text: str) -> str:

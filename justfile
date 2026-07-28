@@ -83,6 +83,11 @@ health:
     @try { echo "main :{{main_port}} -> $(Invoke-RestMethod http://127.0.0.1:{{main_port}}/health -TimeoutSec 3 | ConvertTo-Json -Compress)" } catch { echo "main :{{main_port}} -> DOWN" }
     @try { echo "stt  :{{stt_port}} -> $(Invoke-RestMethod http://127.0.0.1:{{stt_port}}/health -TimeoutSec 3 | ConvertTo-Json -Compress)" } catch { echo "stt  :{{stt_port}} -> DOWN" }
 
+# Open the browser mic-test page for the voice WebSocket (needs both services up)
+test-voice:
+    @echo "Opening http://127.0.0.1:{{main_port}}/test-voice — allow the microphone when asked."
+    Start-Process "http://127.0.0.1:{{main_port}}/test-voice"
+
 # List the scenarios and investigation categories the API serves
 catalog:
     @try { Invoke-RestMethod http://127.0.0.1:{{main_port}}/scenarios -TimeoutSec 3 | ConvertTo-Json -Compress } catch { echo "main API not running on :{{main_port}}" }

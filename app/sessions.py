@@ -12,11 +12,11 @@ or a database.
 """
 
 import threading
-from typing import Dict, Iterator
+from typing import Dict, Iterator, Tuple
 
 from fastapi import HTTPException
 
-from .llm import call_llm, iter_sentences, stream_llm, strip_stage_directions
+from .llm import call_llm, iter_reply_stream, stream_llm, strip_stage_directions
 
 SESSIONS: Dict[str, dict] = {}
 _lock = threading.Lock()  # sync endpoints run in a threadpool -> guard mutations
@@ -82,13 +82,13 @@ def run_chat_turn(session: dict, message: str) -> str:
     return reply
 
 
-def stream_chat_turn(session: dict, message: str) -> Iterator[str]:
-    """Streaming twin of run_chat_turn: yields the reply one speakable chunk at a time.
+def stream_chat_turn(session: dict, message: str) -> Iterator[Tuple[str, str]]:
+    """Streaming twin of run_chat_turn, yielding ('delta'|'sentence', text).
 
-    The caller can hand each chunk straight to the TTS, so the patient starts
-    talking long before the model has finished generating.
+    'delta' is text the moment it arrives, for live display. 'sentence' is a
+    complete speakable chunk, for the TTS. See llm.iter_reply_stream().
 
-    Whatever was yielded is stored as the assistant turn even if the consumer
+    Whatever was spoken is stored as the assistant turn even if the consumer
     stops early (barge-in) — the patient really did say those words out loud, so
     the history has to reflect that.
     """
@@ -98,11 +98,12 @@ def stream_chat_turn(session: dict, message: str) -> Iterator[str]:
 
     spoken: list = []
     try:
-        for sentence in iter_sentences(
+        for kind, text in iter_reply_stream(
             stream_llm(messages_snapshot, max_tokens=800, temperature=0.2)
         ):
-            spoken.append(sentence)
-            yield sentence
+            if kind == "sentence":
+                spoken.append(text)
+            yield kind, text
     finally:
         reply = " ".join(spoken).strip()
         with _lock:

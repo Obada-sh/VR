@@ -98,16 +98,38 @@ Append straight to your playback buffer.
 {"type":"speech_start"}                          // doctor started talking
 {"type":"speech_end"}                            // doctor stopped; pipeline running
 {"type":"transcript","text":"..."}               // what the doctor said
-{"type":"reply","text":"...","final":false}      // patient text, one sentence at a time
-{"type":"reply","text":"...","final":true}       // last sentence of the reply
+{"type":"delta","text":"..."}                    // live patient text, a few chars at a time
+{"type":"reply","text":"...","final":false}      // a COMPLETE sentence, just sent to the TTS
 {"type":"turn_end"}                              // turn complete, mic live again
 {"type":"error","detail":"..."}                  // something failed; turn aborted
 ```
 
-Binary audio frames are interleaved with the `reply` messages — audio for
-sentence 1 starts arriving while sentence 2 is still being generated. That
-interleaving is the entire point of the design; do not buffer everything and wait
-for `turn_end` to start playing.
+### `delta` vs `reply` — render one, not both
+
+They carry the **same text twice**, at different granularities. Appending both
+will duplicate every word on screen.
+
+- **`delta`** is the live stream, a few characters at a time, exactly like a chat
+  app typing out a response. **Use this for the subtitle** — append `text`
+  verbatim as it arrives. It is already stripped of stage directions and
+  reasoning blocks, so nothing you display will need to be retracted.
+- **`reply`** is one finished sentence, emitted at the moment that sentence is
+  handed to the text-to-speech. Use it only if you need to know *which sentence
+  the audio you are currently playing corresponds to* — e.g. to highlight the
+  spoken sentence. Otherwise ignore it.
+
+Reset your subtitle buffer on `speech_end`; the first `delta` of the new turn
+follows shortly after.
+
+**Text runs ahead of audio, by design.** `delta` events are produced on a
+separate thread from synthesis, so text keeps flowing while a sentence is being
+rendered to speech. Expect the subtitle to be a sentence or so ahead of the
+voice — that is correct behaviour, not a sync bug.
+
+Binary audio frames are interleaved with all of the above — audio for sentence 1
+arrives while sentence 2 is still being generated. That interleaving is the
+entire point of the design; do not buffer everything and wait for `turn_end` to
+start playing.
 
 `error` means the turn is dead. Show a message, re-enable the mic, do not expect
 `turn_end`.
@@ -205,7 +227,7 @@ Drive the on-screen indicator from the server events, not from local guesses:
 | `speech_start` | "Listening…"       |
 | `speech_end`   | "Thinking…"        |
 | `transcript`   | Show doctor's text |
-| `reply`        | Append to subtitle |
+| `delta`        | Append to subtitle |
 | `turn_end`     | Back to listening  |
 
 ---

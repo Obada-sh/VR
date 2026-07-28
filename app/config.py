@@ -5,7 +5,7 @@ from pathlib import Path
 
 # --- LLM ---------------------------------------------------------------------
 API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
-MODEL_NAME = "deepseek-v4-flash"
+MODEL_NAME = "deepseek-v4-pro"
 API_KEY = os.environ.get("OPENCODE_API_KEY", "")  # you pass this via the environment
 
 # --- Data files (project root, next to main.py) ------------------------------

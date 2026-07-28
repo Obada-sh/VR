@@ -27,8 +27,9 @@ keeps the receive loop free to notice a `cancel` mid-utterance.
 
 import asyncio
 import json
+import queue
 import threading
-from typing import AsyncIterator, Callable, Iterator, Optional, Tuple
+from typing import AsyncIterator, Callable, Optional, Tuple
 
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -50,8 +51,21 @@ Event = Tuple[str, object]
 
 # --- The pipeline (blocking; runs in a worker thread) -------------------------
 
-def _run_turn(session: dict, audio: np.ndarray, stop: threading.Event) -> Iterator[Event]:
-    """One full voice turn. Yields ('transcript'|'reply'|'audio'|'error', payload).
+def _run_turn(
+    session: dict,
+    audio: np.ndarray,
+    stop: threading.Event,
+    emit: Callable[[str, object], None],
+) -> None:
+    """One full voice turn, pushing events out through `emit` as they happen.
+
+    Emits 'transcript', then 'delta' (live text), 'reply' (a complete sentence),
+    'audio' (PCM for that sentence), and 'error'.
+
+    The LLM is consumed on its OWN thread. That is what lets text keep streaming
+    character by character while a finished sentence is being synthesized — if
+    both shared a thread, the display would freeze for the whole of every TTS
+    render, which is exactly the blocky behaviour this avoids.
 
     `stop` is checked between stages and between audio chunks so a barge-in
     stops the work reasonably promptly — a worker thread can't be killed, only
@@ -59,44 +73,71 @@ def _run_turn(session: dict, audio: np.ndarray, stop: threading.Event) -> Iterat
     """
     text = transcribe_pcm(audio, MIC_SAMPLE_RATE)
     if not text:
-        yield "error", "No speech detected."
+        emit("error", "No speech detected.")
         return
     if stop.is_set():
         return
 
-    yield "transcript", text
+    emit("transcript", text)
 
-    for sentence in stream_chat_turn(session, text):
-        if stop.is_set():
+    sentences: queue.Queue = queue.Queue()
+
+    def read_llm() -> None:
+        """Drain the LLM: live text goes straight out, sentences go to the TTS."""
+        try:
+            for kind, payload in stream_chat_turn(session, text):
+                if stop.is_set():
+                    break
+                if kind == "delta":
+                    emit("delta", payload)       # never waits on synthesis
+                else:
+                    sentences.put(payload)
+        except Exception as e:                   # noqa: BLE001 — surface to client
+            emit("error", str(e))
+        finally:
+            sentences.put(None)                  # unblock the consumer below
+
+    threading.Thread(target=read_llm, daemon=True).start()
+
+    while True:
+        sentence = sentences.get()
+        if sentence is None or stop.is_set():
             return
-        yield "reply", sentence
+        emit("reply", sentence)
 
         spoken = add_tashkeel(sentence) if VOICE_WS_TASHKEEL else sentence
         for pcm in tts.synthesize_stream(spoken):
             if stop.is_set():
                 return
-            yield "audio", pcm
+            emit("audio", pcm)
 
 
-async def _pump(make_gen: Callable[[], Iterator[Event]]) -> AsyncIterator[Event]:
-    """Run a blocking generator in a thread and re-yield its items asynchronously."""
+async def _pump(run: Callable[[Callable[[str, object], None]], None]) -> AsyncIterator[Event]:
+    """Run a blocking, push-based producer in a thread and re-yield it asynchronously.
+
+    Push-based rather than generator-based because the voice turn emits from two
+    threads at once (live text and audio), which a single generator cannot do.
+    """
     loop = asyncio.get_running_loop()
-    queue: asyncio.Queue = asyncio.Queue()
+    events: asyncio.Queue = asyncio.Queue()
     done = object()
+
+    def emit(kind: str, payload: object) -> None:
+        """Thread-safe: called from the producer thread AND its LLM reader."""
+        loop.call_soon_threadsafe(events.put_nowait, (kind, payload))
 
     def produce() -> None:
         try:
-            for item in make_gen():
-                loop.call_soon_threadsafe(queue.put_nowait, item)
+            run(emit)
         except Exception as e:                      # noqa: BLE001 — surface to client
-            loop.call_soon_threadsafe(queue.put_nowait, ("error", str(e)))
+            emit("error", str(e))
         finally:
-            loop.call_soon_threadsafe(queue.put_nowait, done)
+            loop.call_soon_threadsafe(events.put_nowait, done)
 
     threading.Thread(target=produce, daemon=True).start()
 
     while True:
-        item = await queue.get()
+        item = await events.get()
         if item is done:
             return
         yield item
@@ -129,10 +170,12 @@ async def voice_ws(websocket: WebSocket, session_id: str) -> None:
     async def play_turn(audio: np.ndarray, stop: threading.Event) -> None:
         """Drive one turn and stream its events + audio to the client."""
         try:
-            async for kind, payload in _pump(lambda: _run_turn(session, audio, stop)):
+            async for kind, payload in _pump(lambda emit: _run_turn(session, audio, stop, emit)):
                 if kind == "audio":
                     if websocket.client_state is WebSocketState.CONNECTED:
                         await websocket.send_bytes(payload)
+                elif kind == "delta":
+                    await send({"type": "delta", "text": payload})
                 elif kind == "reply":
                     await send({"type": "reply", "text": payload, "final": False})
                 elif kind == "transcript":

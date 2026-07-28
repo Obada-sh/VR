@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice WebSocket Test — Patient Simulator</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#181b22; --line:#272b34; --text:#e6e8ec;
+    --dim:#8b93a1; --accent:#4da3ff; --good:#3ecf8e; --warn:#f2b636; --bad:#ff6b6b;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:24px; background:var(--bg); color:var(--text);
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin-bottom:20px; }
+  .wrap { max-width:1100px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:860px){ .grid{ grid-template-columns:1fr; } }
+  .panel {
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:16px; margin-bottom:16px;
+  }
+  .panel h2 {
+    font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--dim); margin:0 0 12px; font-weight:600;
+  }
+  label { display:block; font-size:12px; color:var(--dim); margin:10px 0 4px; }
+  select, input {
+    width:100%; padding:8px 10px; background:#0f1218; color:var(--text);
+    border:1px solid var(--line); border-radius:6px; font-size:13px;
+  }
+  button {
+    padding:9px 16px; border-radius:6px; border:1px solid var(--line);
+    background:#232833; color:var(--text); font-size:13px; cursor:pointer;
+    font-weight:500;
+  }
+  button:hover:not(:disabled) { background:#2c323f; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#05121f; }
+  button.primary:hover:not(:disabled) { filter:brightness(1.1); }
+  button.danger { background:#3a2226; border-color:#5c2f35; color:#ff9d9d; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+
+  .status {
+    display:flex; align-items:center; gap:10px; padding:12px 14px;
+    border-radius:8px; background:#0f1218; border:1px solid var(--line);
+    font-weight:600; font-size:15px;
+  }
+  .dot { width:11px; height:11px; border-radius:50%; background:var(--dim); flex:none; }
+  .dot.live   { background:var(--good); box-shadow:0 0 0 4px rgba(62,207,142,.15); }
+  .dot.listen { background:var(--accent); animation:pulse 1s infinite; }
+  .dot.think  { background:var(--warn); animation:pulse .7s infinite; }
+  .dot.err    { background:var(--bad); }
+  @keyframes pulse { 50% { opacity:.35; } }
+
+  .meter { height:5px; background:#0b0d11; border-radius:3px; overflow:hidden; margin-top:10px; }
+  .meter i { display:block; height:100%; width:0; background:var(--good); transition:width .06s; }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td { padding:5px 0; border-bottom:1px solid var(--line); }
+  td:last-child { text-align:right; font-variant-numeric:tabular-nums; font-weight:600; }
+  .hero { font-size:26px; font-weight:700; color:var(--good); font-variant-numeric:tabular-nums; }
+  .hero small { font-size:12px; color:var(--dim); font-weight:400; display:block; margin-top:2px; }
+
+  #convo { max-height:280px; overflow-y:auto; }
+  .turn { padding:9px 12px; border-radius:8px; margin-bottom:8px; font-size:14px; }
+  .turn.doc { background:#16202b; border-right:3px solid var(--accent); }
+  .turn.pat { background:#1b2119; border-right:3px solid var(--good); }
+  .turn .who { font-size:10px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
+  .ar { direction:rtl; text-align:right; font-size:15px; }
+
+  #log {
+    height:200px; overflow-y:auto; font:11px/1.6 ui-monospace,Menlo,Consolas,monospace;
+    background:#0b0d11; border-radius:6px; padding:10px; color:var(--dim);
+  }
+  #log b { color:var(--text); font-weight:600; }
+  #log .t { color:#5a6270; }
+  #log .e { color:var(--bad); }
+  .hint { font-size:12px; color:var(--dim); margin-top:10px; line-height:1.6; }
+  code { background:#0b0d11; padding:1px 5px; border-radius:4px; font-size:11px; color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Voice WebSocket Test</h1>
+  <div class="sub">Tests <code>/ws/voice</code> end to end with a real microphone — no Unity, no headset.</div>
+
+  <div class="panel">
+    <h2>Connection</h2>
+    <div class="grid" style="gap:12px">
+      <div>
+        <label>Backend</label>
+        <input id="host" value="">
+      </div>
+      <div>
+        <label>Case</label>
+        <select id="scenario"><option>loading…</option></select>
+      </div>
+    </div>
+    <div class="row">
+      <button id="btnStart" class="primary">Start session &amp; connect</button>
+      <button id="btnStop" disabled>Disconnect</button>
+      <button id="btnCancel" disabled class="danger">Cancel turn (barge-in)</button>
+      <button id="btnPtt" disabled>Hold to talk (bypass VAD)</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2>Status</h2>
+        <div class="status"><span class="dot" id="dot"></span><span id="state">Not connected</span></div>
+        <div class="meter"><i id="level"></i></div>
+        <div class="hint" id="hint">Pick a case and connect, then just talk. The server decides when you have stopped.</div>
+      </div>
+
+      <div class="panel">
+        <h2>Latency — last turn</h2>
+        <div class="hero"><span id="ttfa">—</span><small>you stopped talking → first audio played</small></div>
+        <table style="margin-top:14px">
+          <tr><td>Speech-to-text</td><td id="t_stt">—</td></tr>
+          <tr><td>LLM first sentence</td><td id="t_llm">—</td></tr>
+          <tr><td>TTS first chunk</td><td id="t_tts">—</td></tr>
+          <tr><td>Whole turn</td><td id="t_all">—</td></tr>
+          <tr><td>Audio chunks received</td><td id="t_chunks">—</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>Conversation</h2>
+        <div id="convo"><div class="hint">Nothing yet.</div></div>
+      </div>
+      <div class="panel">
+        <h2>Event log</h2>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Tuning the VAD</h2>
+    <div class="hint">
+      All three live in <code>app/vad.py</code>. Restart the API after changing them.<br>
+      <b>Cuts you off while you are still thinking mid-sentence</b> → raise <code>MIN_SILENCE_MS</code> (currently 700).<br>
+      <b>Waits too long after you finish</b> → lower <code>MIN_SILENCE_MS</code>.<br>
+      <b>Triggers on room noise, typing, breathing</b> → raise <code>THRESHOLD</code> (currently 0.5) or <code>MIN_SPEECH_MS</code>.<br>
+      <b>Misses your quiet first word</b> → lower <code>THRESHOLD</code>, or raise <code>PRE_ROLL_MS</code> if the word is clipped rather than missed.
+    </div>
+  </div>
+</div>
+
+<script>
+const IN_RATE = 16000;      // what the server's VAD + STT require
+const FRAME = 512;          // samples per WebSocket frame (one Silero VAD frame)
+
+let ws, micCtx, playCtx, micStream, procNode;
+let outRate = 24000, playHead = 0;
+let pending = [];           // float samples waiting to fill a frame
+let muted = true;           // don't send while the patient is talking (echo)
+let ptt = false;
+const marks = {};
+
+const $ = id => document.getElementById(id);
+$('host').value = location.origin;
+
+// ---------- logging ----------
+const t0 = performance.now();
+function log(msg, cls) {
+  const el = $('log');
+  const at = ((performance.now() - t0) / 1000).toFixed(2).padStart(6);
+  el.insertAdjacentHTML('beforeend',
+    `<div><span class="t">${at}s</span> <span class="${cls || ''}">${msg}</span></div>`);
+  el.scrollTop = el.scrollHeight;
+}
+function setState(text, cls) {
+  $('state').textContent = text;
+  $('dot').className = 'dot ' + (cls || '');
+}
+function addTurn(who, text, cls) {
+  if ($('convo').querySelector('.hint')) $('convo').innerHTML = '';
+  $('convo').insertAdjacentHTML('beforeend',
+    `<div class="turn ${cls}"><div class="who">${who}</div><div class="ar">${text}</div></div>`);
+  $('convo').scrollTop = $('convo').scrollHeight;
+}
+
+// The patient bubble is built up character by character from `delta` events,
+// so it needs to stay editable until the turn ends.
+let liveBubble = null;
+function appendDelta(text) {
+  if (!liveBubble) {
+    if ($('convo').querySelector('.hint')) $('convo').innerHTML = '';
+    $('convo').insertAdjacentHTML('beforeend',
+      `<div class="turn pat"><div class="who">Patient</div><div class="ar"></div></div>`);
+    liveBubble = $('convo').lastElementChild.querySelector('.ar');
+  }
+  liveBubble.textContent += text;
+  $('convo').scrollTop = $('convo').scrollHeight;
+}
+const ms = v => v == null ? '—' : (v / 1000).toFixed(2) + 's';
+
+// ---------- scenarios ----------
+async function loadScenarios() {
+  try {
+    const r = await fetch($('host').value + '/scenarios');
+    const list = await r.json();
+    $('scenario').innerHTML = list.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    log(`loaded <b>${list.length}</b> cases`);
+  } catch (e) {
+    $('scenario').innerHTML = '<option>could not reach backend</option>';
+    log('cannot reach backend — is uvicorn running on :8000?', 'e');
+  }
+}
+loadScenarios();
+$('host').addEventListener('change', loadScenarios);
+
+// ---------- audio playback (gapless, scheduled) ----------
+function playChunk(buf) {
+  const pcm = new Int16Array(buf);
+  const audio = playCtx.createBuffer(1, pcm.length, outRate);
+  const ch = audio.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+
+  const src = playCtx.createBufferSource();
+  src.buffer = audio;
+  src.connect(playCtx.destination);
+
+  // Schedule back-to-back so chunks join seamlessly. If we've fallen behind
+  // (first chunk, or a stall), restart just ahead of the clock.
+  const now = playCtx.currentTime;
+  if (playHead < now + 0.02) playHead = now + 0.06;
+  src.start(playHead);
+  playHead += audio.duration;
+}
+
+// ---------- microphone ----------
+function resampleTo16k(input, fromRate) {
+  if (fromRate === IN_RATE) return input;
+  const ratio = fromRate / IN_RATE;
+  const out = new Float32Array(Math.floor(input.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const pos = i * ratio, lo = Math.floor(pos), frac = pos - lo;
+    out[i] = input[lo] * (1 - frac) + (input[lo + 1] ?? input[lo]) * frac;
+  }
+  return out;
+}
+
+async function startMic() {
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+  });
+  micCtx = new AudioContext({ sampleRate: IN_RATE });
+  if (micCtx.sampleRate !== IN_RATE) log(`mic runs at ${micCtx.sampleRate}Hz — resampling to ${IN_RATE}`);
+
+  const src = micCtx.createMediaStreamSource(micStream);
+  procNode = micCtx.createScriptProcessor(2048, 1, 1);
+
+  procNode.onaudioprocess = e => {
+    const raw = e.inputBuffer.getChannelData(0);
+
+    let peak = 0;
+    for (let i = 0; i < raw.length; i++) peak = Math.max(peak, Math.abs(raw[i]));
+    $('level').style.width = Math.min(100, peak * 160) + '%';
+
+    if (!ws || ws.readyState !== WebSocket.OPEN || muted) return;
+
+    pending.push(...resampleTo16k(raw, micCtx.sampleRate));
+    while (pending.length >= FRAME) {
+      const frame = pending.splice(0, FRAME);
+      const pcm = new Int16Array(FRAME);
+      for (let i = 0; i < FRAME; i++) pcm[i] = Math.max(-1, Math.min(1, frame[i])) * 32767;
+      ws.send(pcm.buffer);
+    }
+  };
+
+  // Route through a silent gain node: ScriptProcessor only runs when connected,
+  // but we must not hear ourselves.
+  const mute = micCtx.createGain();
+  mute.gain.value = 0;
+  src.connect(procNode); procNode.connect(mute); mute.connect(micCtx.destination);
+}
+
+// ---------- session + socket ----------
+async function connect() {
+  const host = $('host').value.replace(/\/$/, '');
+  $('btnStart').disabled = true;
+
+  let sessionId;
+  try {
+    const r = await fetch(host + '/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: $('scenario').value })
+    });
+    if (!r.ok) throw new Error(await r.text());
+    sessionId = (await r.json()).session_id;
+    log(`session <b>${sessionId.slice(0, 8)}…</b> started`);
+  } catch (e) {
+    log('POST /start failed: ' + e.message, 'e');
+    setState('Could not start session', 'err');
+    $('btnStart').disabled = false;
+    return;
+  }
+
+  try {
+    await startMic();
+  } catch (e) {
+    log('microphone blocked: ' + e.message, 'e');
+    setState('Microphone denied', 'err');
+    $('btnStart').disabled = false;
+    return;
+  }
+
+  playCtx = new AudioContext();
+  playHead = 0;
+
+  ws = new WebSocket(host.replace(/^http/, 'ws') + '/ws/voice?session_id=' + sessionId);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => log('socket open');
+
+  ws.onmessage = ev => {
+    // Binary from the server is ALWAYS patient audio.
+    if (ev.data instanceof ArrayBuffer) {
+      if (!marks.firstAudio) {
+        marks.firstAudio = performance.now();
+        $('ttfa').textContent = ms(marks.firstAudio - marks.speechEnd);
+        $('t_tts').textContent = ms(marks.firstAudio - (marks.firstReply || marks.speechEnd));
+        setState('Patient speaking…', 'live');
+      }
+      marks.chunks = (marks.chunks || 0) + 1;
+      $('t_chunks').textContent = marks.chunks;
+      playChunk(ev.data);
+      return;
+    }
+
+    const m = JSON.parse(ev.data);
+    switch (m.type) {
+      case 'ready':
+        outRate = m.out_sample_rate;
+        muted = false;
+        setState('Listening — just talk', 'live');
+        $('btnStop').disabled = $('btnCancel').disabled = $('btnPtt').disabled = false;
+        log(`<b>ready</b> — mic ${m.in_sample_rate}Hz, patient ${m.out_sample_rate}Hz`);
+        break;
+
+      case 'speech_start':
+        Object.keys(marks).forEach(k => delete marks[k]);
+        marks.speechStart = performance.now();
+        setState('Hearing you…', 'listen');
+        log('<b>speech_start</b>');
+        break;
+
+      case 'speech_end':
+        marks.speechEnd = performance.now();
+        muted = true;                       // half-duplex: stop sending
+        liveBubble = null;                  // next delta starts a fresh bubble
+        setState('Thinking…', 'think');
+        log(`<b>speech_end</b> — you spoke for ${ms(marks.speechEnd - marks.speechStart)}`);
+        ['t_stt','t_llm','t_tts','t_all','t_chunks'].forEach(i => $(i).textContent = '…');
+        $('ttfa').textContent = '…';
+        break;
+
+      case 'transcript':
+        marks.transcript = performance.now();
+        $('t_stt').textContent = ms(marks.transcript - marks.speechEnd);
+        addTurn('Doctor (you)', m.text, 'doc');
+        log(`<b>transcript</b> ${m.text}`);
+        break;
+
+      // Live text, character by character. This is what gets displayed.
+      case 'delta':
+        if (!marks.firstDelta) {
+          marks.firstDelta = performance.now();
+          $('t_llm').textContent = ms(marks.firstDelta - (marks.transcript || marks.speechEnd));
+        }
+        appendDelta(m.text);
+        break;
+
+      // A finished sentence, i.e. the unit just handed to the TTS. Its text is
+      // already on screen via deltas, so this only marks audio sync — log only.
+      case 'reply':
+        if (!marks.firstReply) marks.firstReply = performance.now();
+        log(`<b>reply</b> ${m.text}`);
+        break;
+
+      case 'turn_end':
+        if (marks.speechEnd) $('t_all').textContent = ms(performance.now() - marks.speechEnd);
+        muted = false;
+        setState('Listening — just talk', 'live');
+        log('<b>turn_end</b>');
+        break;
+
+      case 'error':
+        setState('Error — see log', 'err');
+        muted = false;
+        log('<b>error</b> ' + m.detail, 'e');
+        break;
+    }
+  };
+
+  ws.onclose = () => { log('socket closed'); teardown(); };
+  ws.onerror = () => log('socket error', 'e');
+}
+
+function teardown() {
+  muted = true;
+  if (procNode) procNode.disconnect();
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (micCtx) micCtx.close();
+  if (playCtx) playCtx.close();
+  ws = micCtx = playCtx = procNode = micStream = null;
+  pending = [];
+  $('btnStart').disabled = false;
+  $('btnStop').disabled = $('btnCancel').disabled = $('btnPtt').disabled = true;
+  $('level').style.width = '0';
+  setState('Not connected', '');
+}
+
+// ---------- controls ----------
+$('btnStart').onclick = connect;
+$('btnStop').onclick = () => { if (ws) ws.close(); };
+$('btnCancel').onclick = () => {
+  if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'cancel' })); log('sent cancel'); }
+};
+
+// Push-to-talk: hold the button, VAD is bypassed for that utterance.
+function pttDown() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || ptt) return;
+  ptt = true; muted = false;
+  ws.send(JSON.stringify({ type: 'ptt', state: 'down' }));
+  $('btnPtt').textContent = 'Recording — release to send';
+  log('ptt down');
+}
+function pttUp() {
+  if (!ptt) return;
+  ptt = false;
+  ws.send(JSON.stringify({ type: 'ptt', state: 'up' }));
+  $('btnPtt').textContent = 'Hold to talk (bypass VAD)';
+  log('ptt up');
+}
+$('btnPtt').addEventListener('mousedown', pttDown);
+$('btnPtt').addEventListener('mouseup', pttUp);
+$('btnPtt').addEventListener('mouseleave', pttUp);
+</script>
+</body>
+</html>
